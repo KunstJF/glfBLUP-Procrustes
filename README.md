@@ -1,3 +1,4 @@
+<img width="1767" height="803" alt="graphical_abstract" src="https://github.com/user-attachments/assets/acb47de5-221a-445e-a0f3-0bb7730881e4" />
 # glfBLUP-Procrustes
 Scripts for generating results in Kunst et al. (xxxx) A latent factor approach to hyperspectral time series data for multivariate genomic prediction of grain yield in wheat.
 
@@ -7,3 +8,4 @@ Within the _scripts_ folder you will find the R scripts used for generating the 
 Within the _functions_ folder you will find auxillary functions used within the scripts. 
 
 I have added an R project file which should make it possible to run the scripts and function when the data used is available to use. For this, I refer to Melsen et al. (2025) Improving Genomic Prediction Using High-Dimensional Secondary Phenotypes: The Genetic Latent Factor Approach.
+
