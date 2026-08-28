@@ -1,5 +1,5 @@
 ################################################################################
-# Script that generates the 250 random train-test divisions of the
+# Script that generates the 100 random train-test divisions of the
 # hyperspectral data.
 #
 # - 26 training trials, 13 test trials
@@ -23,10 +23,11 @@ for (file.name in list.files("functions")) {
 set.seed(1997)
 
 # Number of datasets:
-n.datasets <- 250
+n.datasets <- 100
 # which environment
 selected_env = 'DRIP'
 
+# Set up parallel processing
 n.cores <- parallel::detectCores() - 2
 work <- split(1:n.datasets, ceiling(seq_along(1:n.datasets) / ceiling(n.datasets / n.cores)))
 seeds <- sample(1:1000, n.cores)
