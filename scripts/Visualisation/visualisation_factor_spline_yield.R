@@ -1,5 +1,8 @@
-# spline combination and visualisation of factors and yield
-# author: Jonathan Kunst
+################################################################################
+# Visualisation of factor score across time using splines
+# with addition of ranking top and bottom yielding genotypes
+################################################################################
+
 
 # libraries ----
 library(tidyverse)
@@ -114,10 +117,23 @@ test %>%
 as.Date.POSIXct(test_spline_df$timePoint)
 as.Date(test_spline_df$timePoint)
 str(test_spline_df)
-test_spline_df %>%
+
+# dates of measurement to indicate in plot ----
+measure_dates_df <- tibble(
+  date = as_datetime(c('2015-01-10 00:00:00 UTC', '2015-01-19 00:00:00 UTC', '2015-02-04 00:00:00 UTC',
+                '2015-02-09 00:00:00 UTC', '2015-02-25 00:00:00 UTC', '2015-03-10 00:00:00 UTC',
+                '2015-03-15 00:00:00 UTC', '2015-03-23 00:00:00 UTC', '2015-03-26 00:00:00 UTC',
+                '2015-04-07 00:00:00 UTC')),
+  physiological_stage = c(rep('Vegetative', 4), 'Heading', rep('Grain filling', 5))
+)
+
+
+
+# final plot ----
+final_plot <- test_spline_df %>%
   mutate(top_bottom_10 = case_when(genotype %in% least_yield$GID ~ 'Bottom 10 genotypes',
                                    genotype %in% best_yield$GID ~ 'Top 10 genotypes',
-                                   .default = 'mid')) |>
+                                   .default = 'Mid')) |>
   ggplot(aes(x = .data[["timePoint"]])) +
   geom_line(aes(y = .data[["fGeno"]],
                 group = .data[["genotype"]],
@@ -125,6 +141,8 @@ test_spline_df %>%
                 alpha = .data[['top_bottom_10']],
                 linewidth = .data[['top_bottom_10']]), na.rm = TRUE) +
   geom_hline(yintercept = 0) +
+  geom_vline(data = measure_dates_df, aes(xintercept = date), linetype = 2) +
+  geom_label(data = measure_dates_df, aes(x = date, y = 6, label = physiological_stage, angle = -90), linewidth = 0) +
   # if you want to visualise the point with most variance
   # geom_vline(xintercept = window_range['mid']) +
   # # geom_rect(aes(xmin = window_range['min'],
@@ -132,7 +150,7 @@ test_spline_df %>%
   # #           ymin = -Inf,
   # #           ymax = Inf), alpha = 0.005) +
   scale_color_manual(values = wes_palette('Cavalcanti1')[c(5,1,2)]) +
-  scale_alpha_manual(values = c(top = 1,  bottom = 1, mid = .1), guide = 'none') +
+  scale_alpha_manual(values = c(top = 1,  bottom = 1, Mid = .1), guide = 'none') +
   scale_discrete_manual("linewidth", values =c(1.5, 0.75, 1.5), guide = 'none') +
   scale_x_datetime(date_labels = '%b') +
   labs(y = paste('Genotype specific spline of factor', selected_factor),
@@ -141,140 +159,6 @@ test_spline_df %>%
        color = 'Yield rank') +
   theme_classic()
 
-# visualise a contrasting set of genotype within B5IR and other environments ----
-b5ir_coloured <- test_spline_df %>%
-  mutate(top_bottom_10 = case_when(genotype %in% least_yield$GID ~ 'Bottom 10%',
-                                   genotype %in% best_yield$GID ~ 'Top 10%',
-                                   .default = 'Median'))
-
-b5ir_genos <- b5ir_coloured %>%
-  select(genotype, top_bottom_10) %>%
-  distinct() %>%
-  filter(top_bottom_10 == 'Top 10%')
-
-b5ir_coloured %>%
-  filter(genotype %in% c('7046166', '7171238', '7173646')) |>
-  ggplot(aes(x = .data[["timePoint"]])) +
-    geom_line(aes(y = .data[["fGeno"]],
-                  group = .data[["genotype"]],
-                  colour = .data[['top_bottom_10']],
-                  alpha = .data[['top_bottom_10']]), na.rm = TRUE) +
-  geom_hline(yintercept = 0) +
-    # if you want to visualise the point with most variance
-    # geom_vline(xintercept = window_range['mid']) +
-    # # geom_rect(aes(xmin = window_range['min'],
-    # #           xmax = window_range['max'],
-    # #           ymin = -Inf,
-    # #           ymax = Inf), alpha = 0.005) +
-    scale_color_manual(values = c(wes_palette(2)[c(2, 1)], 'green')) +
-    scale_alpha_manual(values = c(top = 1,  bottom = 1, Median = 1), guide = 'none') +
-    labs(y = paste('Genotype specific spline of factor', selected_factor),
-         x = 'Time',
-         title = NULL,
-         color = 'Yield Percentile') +
-    theme_classic()
-
-
-b5ir_coloured %>%
-  # filter(genotype %in% c('7045143', '7171238', '7173646')) |>
-  ggplot(aes(x = .data[["timePoint"]])) +
-  geom_line(aes(y = .data[["fGeno"]],
-                group = .data[["genotype"]],
-                colour = .data[['top_bottom_10']],
-                alpha = .data[['top_bottom_10']]), na.rm = TRUE) +
-  geom_hline(yintercept = 0) +
-  # if you want to visualise the point with most variance
-  # geom_vline(xintercept = window_range['mid']) +
-  # # geom_rect(aes(xmin = window_range['min'],
-  # #           xmax = window_range['max'],
-  # #           ymin = -Inf,
-  # #           ymax = Inf), alpha = 0.005) +
-  scale_color_manual(values = c(wes_palette(2)[c(2, 1)], 'green')) +
-  scale_alpha_manual(values = c(top = 1,  bottom = 1, Median = 0.2), guide = 'none') +
-  labs(y = paste('Genotype specific spline of factor', selected_factor),
-       x = 'Time',
-       title = NULL,
-       color = 'Yield Percentile') +
-  theme_classic()
-
-# Heat ----
-## spline data ----
-selected_factor <- 1
-mid_timepoint <- 4
-selected_env <- 'Drip'
-selected_year <- 2014
-
-fname <- paste0('./data/processed/splines/all_data/predsplinedatall_factor',
-                selected_factor,
-                '_mid_timepoint_',
-                mid_timepoint,
-                '_',
-                selected_year,
-                '_',
-                selected_env,
-                '.RDS')
-spline_factor <- read_rds(fname)
-
-# filter yield data for correct year and environment
-yield_pseudo_select <- yield_pseudo %>%
-  filter(cycle == selected_year & env == selected_env & !GID %in% names(check_genos)) %>%
-  group_by(GID) %>%
-  summarise(mean_gy = mean(gy)) %>%
-  filter(mean_gy <= quantile(probs = 0.1, mean_gy) | mean_gy >= quantile(probs = 0.9, mean_gy))
-
-best_yield <- yield_pseudo %>%
-  filter(cycle == selected_year & env == selected_env & !GID %in% names(check_genos)) %>%
-  group_by(GID) %>%
-  summarise(mean_gy = mean(gy)) %>%
-  filter(mean_gy >= quantile(probs = 0.9, mean_gy)) %>%
-  arrange(desc(mean_gy))
-
-least_yield <- yield_pseudo %>%
-  filter(cycle == selected_year & env == selected_env & !GID %in% names(check_genos)) %>%
-  group_by(GID) %>%
-  summarise(mean_gy = mean(gy)) %>%
-  filter(mean_gy <= quantile(probs = 0.1, mean_gy)) %>%
-  arrange(mean_gy)
-
-## creating dataframe with yields included ----
-geno_spline_df <- spline_factor$genoLevel
-
-## creating dataframe with yields included ----
-geno_spline_df <- spline_factor$genoLevel
-
-geno_yields <- yield_pseudo %>%
-  filter(GID %in% geno_spline_df$genotype) %>%
-  select(GID, gy) %>%
-  group_by(GID) %>%
-  summarise(mean_gy = mean(gy)) %>%
-  mutate(genotype = as.character(GID))
-
-test_spline_df <- geno_spline_df %>%
-  left_join(geno_yields, by = 'genotype') %>%
-  mutate(top_bottom_10 = case_when(genotype %in% least_yield$GID ~ 'Bottom 10%',
-                                   genotype %in% best_yield$GID ~ 'Top 10%',
-                                   genotype %in% b5ir_genos$genotype ~ 'B5IR top 10%',
-                                   .default = 'mid'))
-
-test_spline_df %>%
-  ggplot(aes(x = .data[["timeNumber"]])) +
-    geom_line(aes(y = .data[["fGeno"]],
-                  group = .data[["genotype"]],
-                  colour = .data[['top_bottom_10']],
-                  alpha = .data[['top_bottom_10']]), na.rm = TRUE) +
-    # if you want to visualise the point with most variance
-    # geom_vline(xintercept = window_range['mid']) +
-    # # geom_rect(aes(xmin = window_range['min'],
-    # #           xmax = window_range['max'],
-    # #           ymin = -Inf,
-    # #           ymax = Inf), alpha = 0.005) +
-    scale_color_manual(values = c('darkblue', 'red', 'yellow', 'darkgreen')) +
-    scale_alpha_manual(values = c(top = 1,  bottom = 1, mid = 0.1), guide = 'none') +
-    labs(y = paste('Genotype specific spline of factor', selected_factor),
-         title = NULL,
-         color = 'Yield rank') +
-    theme_classic()
-
-
-
+# store plot ----
+ggsave(filename = './figures/factor_spline.jpeg', plot = final_plot, width = 12, height = 10, device = 'jpeg')
 
