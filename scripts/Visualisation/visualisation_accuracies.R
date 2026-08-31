@@ -496,7 +496,7 @@ nospline_signif_boxplot <- no_splines_df |>
 
 nospline_signif_boxplot
 
-ggsave(filename = './figures/complete_boxplot_accuracy_signif_nospline.pdf', plot = complete_signif_boxplot, width = 12, height = 10, device = 'pdf')
+ggsave(filename = './figures/complete_boxplot_accuracy_signif_nospline.pdf', plot = nospline_signif_boxplot, width = 12, height = 10, device = 'pdf')
 
 # Pair-wise comparisons for text ----
 split_emms
