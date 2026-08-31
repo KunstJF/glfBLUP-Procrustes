@@ -1,8 +1,9 @@
 ################################################################################
-# Script that generates the 100 random train-test divisions of the
-# hyperspectral data.
+# Generate the 100 random train-test divisions of the
+# hyperspectral data by Krause et al. (2019)
 #
 # - 26 training trials, 13 test trials
+################################################################################
 
 # Loading libraries:
 library(rlist)
@@ -22,7 +23,7 @@ for (file.name in list.files("functions")) {
 # Setting seed for the main instance:
 set.seed(1997)
 
-# Number of datasets:
+# Number of datasets
 n.datasets <- 100
 # which environment
 selected_env = 'DRIP'
@@ -249,3 +250,4 @@ foreach::foreach(i = 1:length(work), .packages = c("magrittr", 'dplyr')) %dopar%
 doParallel::stopImplicitCluster()
 parallel::stopCluster(cl)
 toc()
+
