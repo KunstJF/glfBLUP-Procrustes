@@ -1,4 +1,6 @@
-# Script to generate latent factors (via Varimax rotation) per dataset fold
+################################################################################
+# Generate latent factors (via Varimax rotation) per dataset fold of hyperspectral data
+################################################################################
 
 # ------------------------------------------------------------------------------
 # 1. Package Loading & Global Setup
