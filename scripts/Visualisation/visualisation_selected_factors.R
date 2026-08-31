@@ -1,4 +1,6 @@
-# aggregate selected factors
+################################################################################
+# Visualisation of subset selection of factors across folds per environment
+################################################################################
 
 # libaries ----
 library(tidyverse)
