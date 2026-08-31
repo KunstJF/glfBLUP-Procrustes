@@ -1,254 +1,163 @@
-# generate splines and spline characteristics
+################################################################################
+# Generate splines and spline characteristics of Procrustes rotated
+# factor scores
+################################################################################
 
-# libraries ----
+# ----------------------------------------------------
+# 1. Load Required Libraries
+# ----------------------------------------------------
 library(statgenHTP)
 library(tictoc)
 library(tidyverse)
 library(magrittr)
 
-# parallelised ----
-# create settings df
-settings_df <- expand.grid(CV = c('CV1', 'CV2'),
-            selected_env = c('B5IR', 'B2IR', 'DRIP'),
-            plant_stage = c('full', 'heading', 'vegetative'),
-            stringsAsFactors = FALSE)
+# ----------------------------------------------------
+# 2. Experimental Setup & Settings Grid
+# ----------------------------------------------------
+# Generate all combinations of Cross-Validation folds (CV), environments, and plant stages
+settings_df <- expand.grid(
+  CV = c('CV1', 'CV2'),
+  selected_env = c('B5IR', 'B2IR', 'DRIP'),
+  plant_stage = c('full', 'heading', 'vegetative'),
+  stringsAsFactors = FALSE
+)
 
+# ----------------------------------------------------
+# 3. Execution Loop
+# ----------------------------------------------------
+# Sequential loop over each experimental setting combination
+tic() # Start timer
 
-# no parallelisation because fitting splines takes a lot of processing power and memory,
-# so we work sequential
-# iterate over each settings n times
-tic()
 for(setting_i in 1:nrow(settings_df)){
+  # Extract specific scenario variables for the current iteration
   CV <- settings_df[setting_i,]$CV
   selected_env <- settings_df[setting_i,]$selected_env
   plant_stage <- settings_df[setting_i,]$plant_stage
 
-  for(i in 51:100){
+  # Run iterations
+  for(i in 1:100){
     cat(sprintf('start run %d with settings: %s %s %s',
-            i, CV, selected_env, plant_stage))
+                i, CV, selected_env, plant_stage))
 
+    # --- Data Loading ---
+    # Construct input file path for the current Procrustes factors
+    factor_file <- sprintf('./data/processed/factors/%s/timepoint_factors/procrustes/procrustes_%d.RData',
+                           selected_env,
+                           i)
+    load(factor_file)
 
-  # load in files
-  factor_file <- sprintf('./data/processed/factors/%s/timepoint_factors/procrustes/procrustes_%d.RData',
-                         selected_env,
-                         i)
-  load(factor_file)
+    # --- Data Wrangling to statgenHTP Format ---
+    # Extract factor scores from loaded data structure across time points
+    factor_dfs <- lapply(procrustes_factor_results[[CV]], function(structure){structure$factor_scores})
+    factor_proc_score_df <- bind_rows(factor_dfs, .id = 'timePoint')
 
-  # wrangle files to statgenhtp format ----
-  factor_dfs <- lapply(procrustes_factor_results[[CV]], function(structure){structure$factor_scores})
+    # Reformat columns to match 'statgenHTP' standard requirements
+    factor_df <- factor_proc_score_df %>%
+      mutate(
+        G = as.factor(G),
+        timePoint = as.POSIXct(ymd(timePoint)),
+        pop = 'population1',
+        colId = column,
+        rowId = row,
+        plotId = plot,
+        .keep = 'unused'
+      )
 
-  factor_proc_score_df <- bind_rows(factor_dfs, .id = 'timePoint')
+    # --- Plant Stage Filtering Rules ---
+    # Timepoint 5 corresponds to heading in B5IR; timepoint 4 in DRIP and B2IR
+    if(plant_stage == 'vegetative' & selected_env == 'B5IR'){
+      factor_df <- factor_df %>% filter(timePoint < unique(factor_df$timePoint)[5])
+    }
+    if(plant_stage == 'heading' & selected_env == 'B5IR'){
+      factor_df <- factor_df %>% filter(timePoint <= unique(factor_df$timePoint)[5])
+    }
+    if(plant_stage == 'vegetative' & selected_env != 'B5IR'){
+      factor_df <- factor_df %>% filter(timePoint < unique(factor_df$timePoint)[4])
+    }
+    if(plant_stage == 'heading' & selected_env != 'B5IR'){
+      factor_df <- factor_df %>% filter(timePoint <= unique(factor_df$timePoint)[4])
+    }
 
-  # create statgenhtp compatible df
-  factor_df <- factor_proc_score_df %>%
-    mutate(G = as.factor(G),
-           timePoint = as.POSIXct(ymd(timePoint)),
-           pop = 'population1',
-           colId = column,
-           rowId = row,
-           plotId = plot,
-           .keep = 'unused')
+    # --- Spline Fitting ---
+    # Fit hierarchical Generalized Additive Models (PS-splines) for factors F1 and F2
+    splines <- list(F1 = NA, F2 = NA)
 
-  # timepoint 5 is heading in B5IR while timepoint 4 is heading in DRIP and B2IR
-  if(plant_stage == 'vegetative' & selected_env == 'B5IR'){
-    factor_df <- factor_df %>%
-      filter(timePoint < unique(factor_df$timePoint)[5])
-  }
-  if(plant_stage == 'heading' & selected_env == 'B5IR'){
-    factor_df <- factor_df %>%
-      filter(timePoint <= unique(factor_df$timePoint)[5])
-  }
-  if(plant_stage == 'vegetative' & selected_env != 'B5IR'){
-    factor_df <- factor_df %>%
-      filter(timePoint < unique(factor_df$timePoint)[4])
-  }
-  if(plant_stage == 'heading' & selected_env != 'B5IR'){
-    factor_df <- factor_df %>%
-      filter(timePoint <= unique(factor_df$timePoint)[4])
-  }
+    for(factor_col in names(splines)){
+      splines[[factor_col]] <- fitSplineHDM(
+        inDat = factor_df,
+        trait = factor_col,
+        genotype = 'G',
+        pop = 'pop'
+      )
+    }
 
+    # --- Interpolation across Time ---
+    # Predict spline trajectories over evenly spaced timepoints
+    splines <- lapply(splines, function(factor_spline){
+      pred_all.psHDM <- predict(
+        object = factor_spline,
+        newtimes = seq(min(factor_spline$time[["timeNumber"]]),
+                       max(factor_spline$time[["timeNumber"]]),
+                       length.out = 100),
+        pred = list(pop = TRUE, geno = TRUE, plot = TRUE),
+        se = list(pop = FALSE, geno = FALSE, plot = FALSE),
+        trace = FALSE
+      )
+    })
 
-  # statgenhtp ----
-  ## create splines for each factor
-  splines <- list(F1 = NA, F2 = NA)
+    # --- Extract Spline Characteristics ---
+    # Derive physiological parameters (min, max, area under curve) from spline curves and derivatives
+    extracted_params <- lapply(splines, function(spline){
+      params <- list()
+      # Fitted predictions (plot level)
+      params[['fgeno']] <- estimateSplineParameters(
+        spline,
+        estimate = 'predictions',
+        what = c('min', 'max', 'AUC'),
+        fitLevel = 'plot'
+      )
+      # First derivatives (growth rates)
+      params[['fderiv1']] <- estimateSplineParameters(
+        spline,
+        estimate = 'derivatives',
+        what = c('min', 'max', 'AUC'),
+        fitLevel = 'plot'
+      )
+      # Second derivatives (growth acceleration)
+      params[['fderiv2']] <- estimateSplineParameters(
+        spline,
+        estimate = 'derivatives2',
+        what = c('min', 'max', 'AUC'),
+        fitLevel = 'plot'
+      )
+      return(params)
+    })
 
-  for(factor_col in names(splines)){
-    splines[[factor_col]] <- fitSplineHDM(inDat = factor_df,
-                                          trait = factor_col,
-                                          genotype = 'G',
-                                          pop = 'pop'
-    )
-  }
+    # --- Parameter Dataset Formatting ---
+    # Merge predictions, 1st derivatives, and 2nd derivatives per factor
+    extracted_dfs_all <- lapply(extracted_params, function(params){
+      reduce(params, left_join, by = c('pop', 'genotype', 'plotId'))
+    })
 
-  # interpolate across timepoints for errors and spline estimates
-  splines <- lapply(splines, function(factor_spline){
-    pred_all.psHDM <- predict(object = factor_spline,
-                              newtimes = seq(min(factor_spline$time[["timeNumber"]]),
-                                             max(factor_spline$time[["timeNumber"]]),
-                                             length.out = 100),
-                              pred = list(pop = TRUE, geno = TRUE, plot = TRUE),
-                              se = list(pop = FALSE, geno = FALSE, plot = FALSE),
-                              trace = FALSE)
-  })
+    # Pivot into a single wide-format dataset combining F1 and F2 parameters
+    all_df <- bind_rows(extracted_dfs_all, .id = 'factor') %>%
+      pivot_wider(names_from = 'factor', values_from = min_predictions:AUC_derivatives2)
 
-  # estimate spline characteristics ----
-  # for each factor extract params based on predicted spline, derivative 1 and derivative 2
-  extracted_params <- lapply(splines, function(spline){
-    params <- list()
-    ### fgeno ----
-    params[['fgeno']] <- estimateSplineParameters(spline,
-                                                  estimate = 'predictions',
-                                                  what = c('min', 'max', 'AUC'),
-                                                  fitLevel = 'plot')
-    ### fgenoderiv1 ----
-    params[['fderiv1']] <- estimateSplineParameters(spline,
-                                                    estimate = 'derivatives',
-                                                    what = c('min', 'max', 'AUC'),
-                                                    fitLevel = 'plot')
-    ### fgenodriv2 ----
-    params[['fderiv2']] <- estimateSplineParameters(spline,
-                                                    estimate = 'derivatives2',
-                                                    what = c('min', 'max', 'AUC'),
-                                                    fitLevel = 'plot')
-    return(params)
-  })
+    # --- Save Outputs ---
+    # Save fitted spline models as RData
+    spline_result_file <- sprintf('./data/processed/splines/%s/%s/%s/spline_%d.RData',
+                                  selected_env, CV, plant_stage, i)
+    save(splines, file = spline_result_file)
 
-  # wrangling the params ----
-  ## using overall ----
-  # join the predicted, derivative 1 and derivative for each factor
-  extracted_dfs_all <- lapply(extracted_params,function(params){
-    reduce(params, left_join, by = c('pop','genotype', 'plotId'))
-  })
+    # Save extracted characteristics as CSV
+    spline_result_file <- sprintf('./data/processed/spline_characteristics/%s/%s/%s/characteristic_%d.csv',
+                                  selected_env, CV, plant_stage, i)
+    write_csv(all_df, spline_result_file)
 
-  # combine dataframes from each factor
-  all_df <- bind_rows(extracted_dfs_all, .id = 'factor') %>%
-    pivot_wider(names_from = 'factor', values_from = min_predictions:AUC_derivatives2)
-
-  # store results ----
-  ## splines ----
-  spline_result_file <- sprintf('./data/processed/splines/%s/%s/%s/spline_%d.RData',
-                                selected_env,
-                                CV,
-                                plant_stage,
-                                i)
-
-  save(splines, file = spline_result_file)
-
-  ## characteristics -----
-  spline_result_file <- sprintf('./data/processed/spline_characteristics/%s/%s/%s/characteristic_%d.csv',
-                                selected_env,
-                                CV,
-                                plant_stage,
-                                i)
-
-  write_csv(all_df, spline_result_file)
-
-  rm(all_df)
-  rm(splines)
-  rm(extracted_dfs_all)
-  rm(procrustes_factor_results)
-  rm(extracted_params)
-  rm(factor_df)
-  rm(factor_proc_score_df)
-  rm(factor_dfs)
+    # --- Clean Memory ---
+    # Remove large objects to ensure memory efficiency for subsequent iterations
+    rm(all_df, splines, extracted_dfs_all, procrustes_factor_results,
+       extracted_params, factor_df, factor_proc_score_df, factor_dfs)
   }
 }
-toc()
-
-# # 1 run example ----
-# i = 1
-# cat(paste('Start run', i))
-# # either B5IR, B2IR or DRIP
-# env = 'B5IR'
-# # either CV1 or CV2
-# CV = 'CV1'
-# # either full, heading or vegetative
-# plant_stage = 'full'
-#
-# # load in files
-# factor_file <- paste0('./data/processed/factors/B5IR/timepoint_factors/procrustes/procrustes_',
-#                       i,
-#                       '.RData')
-# load(factor_file)
-#
-# # wrangle files to statgenhtp format ----
-# factor_dfs <- lapply(procrustes_factor_results[[CV]], function(structure){structure$factor_scores})
-#
-# factor_proc_score_df <- bind_rows(factor_dfs, .id = 'timePoint')
-#
-# # create statgenhtp compatible df
-# factor_df <- factor_proc_score_df %>%
-#   mutate(G = as.factor(G),
-#          timePoint = as.POSIXct(ymd(timePoint)),
-#          pop = 'population1',
-#          colId = column,
-#          rowId = row,
-#          plotId = plot,
-#          .keep = 'unused')
-#
-# # statgenhtp ----
-# ## create splines for each factor
-# splines <- list(F1 = NA, F2 = NA)
-#
-# for(factor_col in names(splines)){
-#   splines[[factor_col]] <- fitSplineHDM(inDat = factor_df,
-#                                         trait = factor_col,
-#                                         genotype = 'G',
-#                                         pop = 'pop'
-#   )
-# }
-#
-# # interpolate across timepoints for errors and spline estimates
-# splines <- lapply(splines, function(factor_spline){
-#   pred_all.psHDM <- predict(object = factor_spline,
-#                             newtimes = seq(min(factor_spline$time[["timeNumber"]]),
-#                                            max(factor_spline$time[["timeNumber"]]),
-#                                            length.out = 100),
-#                             pred = list(pop = TRUE, geno = TRUE, plot = TRUE),
-#                             se = list(pop = FALSE, geno = FALSE, plot = FALSE),
-#                             trace = FALSE)
-# })
-#
-# # estimate spline characteristics ----
-# # for each factor extract params based on predicted spline, derivative 1 and derivative 2
-# extracted_params <- lapply(splines, function(spline){
-#   params <- list()
-#   ### fgeno ----
-#   params[['fgeno']] <- estimateSplineParameters(spline,
-#                                                 estimate = 'predictions',
-#                                                 what = c('min', 'max', 'AUC'),
-#                                                 fitLevel = 'plot')
-#   ### fgenoderiv1 ----
-#   params[['fderiv1']] <- estimateSplineParameters(spline,
-#                                                   estimate = 'derivatives',
-#                                                   what = c('min', 'max', 'AUC'),
-#                                                   fitLevel = 'plot')
-#   ### fgenodriv2 ----
-#   params[['fderiv2']] <- estimateSplineParameters(spline,
-#                                                   estimate = 'derivatives2',
-#                                                   what = c('min', 'max', 'AUC'),
-#                                                   fitLevel = 'plot')
-#   return(params)
-# })
-#
-# # wrangling the params ----
-# ## using overall ----
-# # join the predicted, derivative 1 and derivative for each factor
-# extracted_dfs_all <- lapply(extracted_params,function(params){
-#   reduce(params, left_join, by = c('pop','genotype', 'plotId'))
-# })
-#
-# # combine dataframes from each factor
-# all_df <- bind_rows(extracted_dfs_all, .id = 'factor') %>%
-#   pivot_wider(names_from = 'factor', values_from = min_predictions:AUC_derivatives2)
-#
-# # store results ----
-# ## splines ----
-# spline_result_file <- paste0('./data/processed/splines/', env,'/', CV,'/',plant_stage,'/','spline_', i,'.RData')
-#
-# save(spline_result_file, file = spline_result_file)
-#
-# ## characteristics -----
-# spline_result_file <- paste0('./data/processed/spline_characteristics/', env,'/', CV,'/',plant_stage,'/','characteristic_', i,'.csv')
-#
-# write_csv(all_df, spline_result_file)
+toc() # Print execution time
