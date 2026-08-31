@@ -1,4 +1,8 @@
-# visualisation of factor score correlation
+################################################################################
+# visualisation of factor score correlation across environments
+################################################################################
+
+# libraries ----
 library(tidyverse)
 library(corrplot)
 library(GGally)
