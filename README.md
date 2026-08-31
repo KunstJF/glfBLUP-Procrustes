@@ -1,5 +1,6 @@
 # glfBLUP-Procrustes
-<img width="1000" height="600" alt="graphical_abstract" src="https://github.com/user-attachments/assets/abc8c43b-f952-4064-828b-ebaec25759bd" />
+
+<img width="907" height="473" alt="graphical_abstract" src="https://github.com/user-attachments/assets/13b7e0b0-867d-41d7-9be0-33dc01bf461f" />
 
 Scripts for generating results in Kunst et al. (xxxx) A latent factor approach to hyperspectral time series data for multivariate genomic prediction of grain yield in wheat.
 
