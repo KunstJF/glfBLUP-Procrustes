@@ -1,6 +1,11 @@
-# collect accuracy scores
+################################################################################
+# Visualisation of prediction accuracies of all methods across all
+# CV scenario, plant stages and environments
+################################################################################
 
 # libraries ----
+library(emmeans)
+library(multcomp)
 library(tidyverse)
 
 # settings ----
@@ -9,6 +14,19 @@ settings_df <- expand.grid(CV = c('CV1', 'CV2'),
                            selected_env = c('B5IR', 'B2IR', 'DRIP'),
                            plant_stage = c('full', 'heading', 'vegetative'),
                            stringsAsFactors = FALSE)
+
+# palette
+type_colours <- c('#E18727'= 'gblup',
+                  '#BC3C29' = 'concatenated glfBLUP',
+                  '#0072B5' = 'Varimax factors glfBLUP',
+                  '#20854E' = 'Procrustes factors glfBLUP',
+                  '#EE4C97' = 'spline characteristics glfBLUP')
+
+type_colours_2 <- c('#E18727',
+                    '#BC3C29',
+                    '#0072B5',
+                    '#20854E',
+                    '#EE4C97')
 
 # gfBLUP with splines ----
 spline_accuracy_list <- by(settings_df, seq_len(nrow(settings_df)), function(row){
@@ -84,17 +102,19 @@ settings_naive <- settings_df %>%
   select(selected_env, plant_stage) %>%
   distinct()
 
+selected_env <- settings_naive$selected_env[1]
+plant_stage <- settings_naive$plant_stage[1]
 naive_accuracy_list <- by(settings_naive, seq_len(nrow(settings_naive)), function(row){
   selected_env <-   row$selected_env
   plant_stage <- row$plant_stage
 
   # retrieve filenames for specific setting
-  file_names <- list.files(sprintf('./data/processed/gfBLUP_naive/%s/%s/',
+  file_names <- list.files(sprintf('./data/processed/gfBLUP_naive_regsubset_bic/%s/%s/',
                                    selected_env, plant_stage))
 
   # retrieve accuracy from datafile
   accuracies <- lapply(file_names, function(file_name){
-    file_name_full <- sprintf('./data/processed/gfBLUP_naive/%s/%s/%s',
+    file_name_full <- sprintf('./data/processed/gfBLUP_naive_regsubset_bic/%s/%s/%s',
                               selected_env, plant_stage, file_name)
 
     load(file_name_full)
@@ -179,7 +199,9 @@ names(gblup_accuracy_list) <- paste(settings_gblup$selected_env)
 gblup_accuracy_list <- lapply(gblup_accuracy_list, function(x){x})
 
 # create accuracy df with setting columns
-gblup_accuracy_df <- bind_rows(gblup_accuracy_list, .id = 'environment')
+gblup_accuracy_df <- bind_rows(gblup_accuracy_list, .id = 'environment') |>
+  dplyr::select(-CV)
+
 
 ## create boxplot -----
 gblup_accuracy_df %>%
@@ -342,20 +364,108 @@ complete_df <- spline_accuracy_df %>%
 
 head(complete_df)
 
-# complete boxplot ----
-# vector for colours ----
-type_colours <- c('#E18727'= 'gblup',
-                  '#BC3C29' = 'concatenated glfBLUP',
-                  '#0072B5' = 'Varimax factors glfBLUP',
-                  '#20854E' = 'Procrustes factors glfBLUP',
-                  '#EE4C97' = 'spline characteristics glfBLUP')
+# add ANOVA compact letter display all data ----
+split_dfs <- split(complete_df, ~CV + environment + plant_stage)
+split_emms <- lapply(split_dfs, function(df){
+  lm.obj <- lm(accuracy ~ type, data = df)
+  emm.obj <- emmeans(lm.obj, ~type)
+})
+bind_rows(lapply(split_emms, cld, Letters = letters), .id = 'environment')
+cld_df <- bind_rows(lapply(split_emms, cld, Letters = letters), .id = 'environment') |>
+  separate_wider_delim(environment, names = c('CV', 'environment', 'plant_stage'), delim = '.')
 
-type_colours_2 <- c('#E18727',
-                 '#BC3C29',
-                 '#0072B5',
-                 '#20854E',
-                 '#EE4C97')
-complete_boxplot <- complete_df %>%
+cld_df
+
+## join cld display to boxplot df ----
+cld_plot_data <- cld_df|>
+  dplyr::select(-(emmean:upper.CL)) |>
+  distinct() |>
+  # remove white space around letters and set position for plot
+  mutate(cld = str_trim(.group),
+         y = .9,
+         .keep = 'unused')
+
+# check which comparisons are non significant across in CV, environment and plant stage
+cld_sig_plot_data <- cld_plot_data |>
+  group_by(CV, environment, plant_stage) |>
+  # get counts per grouping of comparisons
+  add_count(cld) |>
+  # if it only contains one letter (a) it will sum to number of methods (5)
+  filter(n != 5)
+
+cld_sig_plot_data
+## create boxplot with cld all data ----
+complete_signif_boxplot <- complete_df |>
+  left_join(cld_sig_plot_data) |>
+  mutate(plant_stage = fct_recode(factor(plant_stage, levels = c('vegetative', 'heading', 'full')),
+                                               Vegetative = 'vegetative',
+                                               `Vegetative & Heading` = 'heading',
+                                               All = 'full'),
+                      environment = fct_recode(factor(environment, levels = c('B5IR', 'B2IR', 'DRIP')),
+                                               'Optimal flat' = 'B5IR',
+                                               'Moderate drought' = 'B2IR',
+                                               'Severe drought' = 'DRIP'),
+                      type = fct_recode(factor(type, levels = c('gblup', 'naive', 'varimax', 'procrustes', 'spline')),
+                                        'Univariate gBLUP' = 'gblup',
+                                        'Concatenated glfBLUP' = 'naive',
+                                        'Varimax factors glfBLUP' = 'varimax',
+                                        'Procrustes factors glfBLUP' = 'procrustes',
+                                        'Spline characteristics glfBLUP' = 'spline')) %>%
+  # for plot without spline
+  ggplot(aes(x = plant_stage, y = accuracy, fill = type)) +
+  geom_boxplot() +
+  geom_text(aes(y = y, label = cld, colour = type), , size = 3, position = position_dodge(width = .85), stat = 'unique') +
+  facet_wrap(~CV + environment) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  guides(fill=guide_legend(title= "Method")) +
+  scale_colour_manual(values = type_colours_2, guide = 'none') +
+  scale_fill_manual(values = type_colours_2) +
+  labs(
+    x = 'Plant stages included',
+    y = 'Prediction accuracy')
+
+complete_signif_boxplot
+
+ggsave(filename = './figures/complete_boxplot_accuracy_signif_spline.pdf', plot = complete_signif_boxplot, width = 12, height = 10, device = 'pdf')
+
+# boxplot with cld without splines ----
+no_splines_df <- complete_df |>
+  filter(!type == 'spline')
+
+split_dfs <- split(no_splines_df, ~CV + environment + plant_stage)
+split_emms <- lapply(split_dfs, function(df){
+  lm.obj <- lm(accuracy ~ type, data = df)
+  emm.obj <- emmeans(lm.obj, ~type)
+})
+
+cld_df <- bind_rows(lapply(split_emms, cld, Letters = letters), .id = 'environment') |>
+  separate_wider_delim(environment, names = c('CV', 'environment', 'plant_stage'), delim = '.')
+
+cld_df
+
+# join cld display to boxplot df ----
+cld_plot_data <- cld_df|>
+  dplyr::select(-(emmean:upper.CL)) |>
+  distinct() |>
+  # remove white space around letters and set position for plot
+  mutate(cld = str_trim(.group),
+         y = .9,
+         .keep = 'unused')
+
+# check which comparisons are non significant across in CV, environment and plant stage
+cld_sig_plot_data <- cld_plot_data |>
+  group_by(CV, environment, plant_stage) |>
+  # get counts per grouping of comparisons
+  add_count(cld) |>
+  # if it only contains one letter (a) it will sum to number of methods (4)
+  filter(n != 4)
+
+cld_sig_plot_data
+
+# create boxplot with cld ----
+nospline_signif_boxplot <- no_splines_df |>
+  left_join(cld_sig_plot_data) |>
   mutate(plant_stage = fct_recode(factor(plant_stage, levels = c('vegetative', 'heading', 'full')),
                                   Vegetative = 'vegetative',
                                   `Vegetative & Heading` = 'heading',
@@ -371,19 +481,26 @@ complete_boxplot <- complete_df %>%
                            'Procrustes factors glfBLUP' = 'procrustes',
                            'Spline characteristics glfBLUP' = 'spline')) %>%
   # for plot without spline
-  # filter(type != 'Spline characteristics glfBLUP') %>%
   ggplot(aes(x = plant_stage, y = accuracy, fill = type)) +
   geom_boxplot() +
-  facet_wrap(~CV.x + environment) +
+  geom_text(aes(y = y, label = cld, colour = type), , size = 3, position = position_dodge(width = .85), stat = 'unique') +
+  facet_wrap(~CV + environment) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
   guides(fill=guide_legend(title= "Method")) +
+  scale_colour_manual(values = type_colours_2, guide = 'none') +
   scale_fill_manual(values = type_colours_2) +
   labs(
     x = 'Plant stages included',
     y = 'Prediction accuracy')
 
-complete_boxplot
+nospline_signif_boxplot
 
-ggsave(filename = './figures/complete_boxplot_accuracy_spline.pdf', plot = complete_boxplot, width = 10, height = 10, device = 'pdf')
+ggsave(filename = './figures/complete_boxplot_accuracy_signif_nospline.pdf', plot = complete_signif_boxplot, width = 12, height = 10, device = 'pdf')
+
+# Pair-wise comparisons for text ----
+split_emms
+lapply(split_emms, pairs)
+
+
 
