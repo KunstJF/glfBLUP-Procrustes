@@ -1,4 +1,7 @@
-# CIMMYT proc factor splines example with statgenHTP
+################################################################################
+# Visualisation of factor loadings and change before and after
+# Procrustes rotation
+################################################################################
 
 # libraries
 library(tidyverse)
@@ -137,7 +140,7 @@ HS_list <- list(`Severe Drought` = select(HS_DRIP$data, 'G', contains('nm')),
                 `Optimal Flat` = select(HS_B5IR$data, 'G', contains('nm'))
 )
 
-
+## Procrustes rotation loadings generation -----
 procrustes_loadings_generator <- function(df, focal_timepoint){
   ## wrangling for different timepoint factors ----
   # get dates
@@ -208,6 +211,7 @@ procrustes_loadings_generator <- function(df, focal_timepoint){
   return(smoothed_factor_df)
 }
 
+## Varimax loadings generation ----
 varimax_loadings_generator <- function(df){
   ## wrangling for different timepoint factors ----
   # get dates
@@ -297,8 +301,8 @@ ggsave('./figures/loadings_plot_varimax.pdf', plot = loadings_plot_vari, device 
          Wavelength = wavelength,
          new_fact = fct_cross(environment, factor, sep = ' Factor '),
          .keep = 'unused') %>%
-  ggplot(aes(x = Wavelength, y = `Factor Loading`, colour = Factor, shape = Treatment)) +
-  geom_point(size = 0.8) +
+  ggplot(aes(x = Wavelength, y = `Factor Loading`, shape = Factor, colour = Treatment)) +
+  geom_point(size = 1) +
   # geom_line() +
   facet_wrap(~timePoint) +
   theme_classic())
