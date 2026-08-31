@@ -1,4 +1,6 @@
-# yield box plot with heritabilities of each watering treatment
+################################################################################
+# yield box plot with and correlation between environments
+################################################################################
 
 # library ----
 library(tidyverse)
@@ -125,6 +127,7 @@ scatter_tri <- ggtest <- ggpairs(BLUE_df,
   )
 scatter_tri
 
+# some editing of the scatter plot to make it more concise
 scatter_tri$yAxisLabels = scatter_tri$yAxisLabels[2:3]
 scatter_tri$xAxisLabels = scatter_tri$xAxisLabels[1:2]
 scatter_tri$plots = scatter_tri$plots[c(4,5, 7,8)]
@@ -146,4 +149,7 @@ gy_boxplot <- BLUE_df |>
 
 gy_boxplot
 
-gy_boxplot + wrap_elements(ggmatrix_gtable(scatter_tri))
+gy_boxplot + wrap_elements(ggmatrix_gtable(scatter_tri)) + plot_annotation(tag_levels = c('a', 'b'))
+
+
+
