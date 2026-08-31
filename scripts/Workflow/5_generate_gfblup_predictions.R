@@ -1,6 +1,11 @@
-# generate gfblup predictions
+################################################################################
+# generate gfblup predictions using Varimax factor scores, Procrustes rotated factor scores
+# or spline characteristic based on Procrustes rotated factor scores
+################################################################################
 
-# libraries ----
+# ----------------------------------------------------
+# 1. Load Required Libraries
+# ----------------------------------------------------
 library(leaps)
 library(gfBLUP)
 library(magrittr)
@@ -9,96 +14,113 @@ library(rlist)
 library(tictoc)
 library(tidyverse)
 
-
-# local functions ----
+# ----------------------------------------------------
+# 2. Source Functions & Load Shared Data
+# ----------------------------------------------------
+# Dynamically source all custom utility R functions stored in the local 'functions/' folder
 for (file.name in list.files("functions")) {
   source(paste0("functions/", file.name))
 }
 
-# kinship used across ----
+# Load the genomic kinship matrix used across all prediction models
 K <- load('./data/processed/kinship.RData')
 
-# create settings df ----
-settings_df <- expand.grid(CV = c('CV1', 'CV2'),
-                           selected_env = c('B5IR', 'B2IR', 'DRIP'),
-                           plant_stage = c('full', 'heading', 'vegetative'),
-                           stringsAsFactors = FALSE)
+# ----------------------------------------------------
+# 3. Define Experimental Settings Grid
+# ----------------------------------------------------
+# Create all combinations of Cross-Validation schemes, environments, and plant stages
+settings_df <- expand.grid(
+  CV = c('CV1', 'CV2'),
+  selected_env = c('B5IR', 'B2IR', 'DRIP'),
+  plant_stage = c('full', 'heading', 'vegetative'),
+  stringsAsFactors = FALSE
+)
 
-
-# naive factor scores ----
+# ====================================================
+# PART A: VARIMAX ROTATED FACTOR SCORES PREDICTION
+# ====================================================
 for(settings_i in 1:nrow(settings_df)){
+  # Extract experimental variables for current configuration
   (CV = settings_df[settings_i,]$CV)
   (env = settings_df[settings_i,]$selected_env)
   (stage = settings_df[settings_i,]$plant_stage)
 
+  # Check available dataset count for the target environment
   n_datasets <- length(list.files(
     sprintf('./data/processed/factors/%s/timepoint_factors/varimax/', env)))
 
-  tic()
+  tic() # Start execution timer
   for(i in 1:100){
     cat('start run', i, env, CV, stage, '\n')
 
+    # Load Varimax factor scores and cross-validation hyper-folds for dataset 'i'
     load(sprintf('./data/processed/factors/%s/timepoint_factors/varimax/factors_dataset_%d.RData', env, i))
-
     load(sprintf('./data/processed/hyper_folds/%s/hyper_dataset_%i.RData', env, i))
 
+    # Set temporal threshold index based on environment heading point
     if(env == 'B5IR'){
       heading_i <- 5
     }else{
       heading_i <- 4
     }
 
-    ### wrangle factors for setting ----
+    # --- Wrangle Factor Scores ---
+    # Filter factor results corresponding to active cross-validation scheme
     cv_loc <- str_detect(names(factor_result), paste0(tolower(CV), '_factor_dfs'))
-
     factor_scores <- lapply(factor_result[cv_loc], function(setting){bind_rows(setting, .id = 'timepoint')})
-
     timepoints <- names(factor_result[cv_loc][[1]])
 
-    # determine which timepoints to retain based on plant stages used
+    # Filter timepoints based on target plant stage (heading vs vegetative vs full)
     if(stage == 'heading'){
       timepoints <- timepoints[1:heading_i]
     }else if(stage == 'vegetative'){
       timepoints <- timepoints[1:(heading_i -1)]
     }
 
-    # structure secondary factor and focal trait df
+    # Reshape factor scores to wide format and combine with response variable (Y)
     fac_df <- factor_scores[[1]] %>%
       filter(timepoint %in% timepoints) %>%
       pivot_wider(names_from = timepoint, values_from = F1:F2) %>%
       select(G, contains('F'), yield_adjusted_BLUES, Y) %>%
       mutate(Y = yield_adjusted_BLUES, .keep = 'unused')
 
-    ### wrangle yield and secondary trait data together ----
-    # scale predictor variables ----
-    # create means df for subset selection
+    # --- Feature Selection via Best Subset Regression ---
+    # Compute genotype-level averages across plots for model feature selection
     mean_df <- fac_df %>%
       group_by(G) %>%
       summarise(across(everything(), mean)) %>%
       column_to_rownames('G')
 
-    # subset selection ----
+    # Identify optimal subset of factor features minimizing Bayesian Information Criterion (BIC)
     best.fit <- regsubsets(Y~ ., data = na.omit(mean_df), nvmax = ncol(mean_df) - 1)
     sum.fit <- summary(best.fit)
     best.coefs <- coef(best.fit, which.min(sum.fit$bic))
 
-    # gfBLUP ----
+    # --- Fit gfBLUP Model ---
+    # Subset kinship matrix to genotypes present in current factor dataset
     k_included <- kinship[unique(fac_df$G), unique(fac_df$G)]
+
     tryCatch({
+      # Fit genomic feature BLUP using features chosen by subset selection
       gfBLUP_result <- custom_gfBLUP(data = as.data.frame(fac_df), selection = names(best.coefs)[-1], K = k_included)
+
+      # Calculate predictive accuracy (Pearson correlation between predictions and target values)
       gfBLUP_result$rho = cor(gfBLUP_result$preds[match(x$pred.target$G, names(gfBLUP_result$preds))],
                               x$pred.target$pred.target)
-      # store results ----
+
+      # Save output list structure
       list.save(gfBLUP_result,
                 file = paste0('./data/processed/gfBLUP_timepoints/varimax/',env, '/', CV,
                               '/', stage, '/gfBLUP_', i, '.RData'))
       rm(gfBLUP_result)
     }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
   }
-  toc()
+  toc() # Stop execution timer
 }
 
-# rotated factor scores ----
+# ====================================================
+# PART B: PROCRUSTES ROTATED FACTOR SCORES PREDICTION
+# ====================================================
 for(settings_i in 1:nrow(settings_df)){
   (CV = settings_df[settings_i,]$CV)
   (env = settings_df[settings_i,]$selected_env)
@@ -108,12 +130,11 @@ for(settings_i in 1:nrow(settings_df)){
     sprintf('./data/processed/factors/%s/timepoint_factors/varimax/', env)))
 
   tic()
-  # just 100 because splines took a long time so stopped at 100 sets
   for(i in 1:100){
     cat('start run', i, env, CV, stage, '\n')
 
+    # Load Procrustes aligned factor scores and hyper-folds
     load(sprintf('./data/processed/factors/%s/timepoint_factors/procrustes/procrustes_%d.RData', env, i))
-
     load(sprintf('./data/processed/hyper_folds/%s/hyper_dataset_%i.RData', env, i))
 
     if(env == 'B5IR'){
@@ -122,21 +143,19 @@ for(settings_i in 1:nrow(settings_df)){
       heading_i <- 4
     }
 
-    ### wrangle factors for setting ----
+    # --- Wrangle Procrustes Factors ---
     factor_scores <- lapply(procrustes_factor_results[[CV]], function(setting){setting$factor_scores})
-
     factor_scores_df <- bind_rows(factor_scores, .id = 'timepoint')
-
     timepoints <- names(factor_scores)
 
-    # determine which timepoints to retain based on plant stages used
+    # Filter timepoints based on target plant stage
     if(stage == 'heading'){
       timepoints <- timepoints[1:heading_i]
     }else if(stage == 'vegetative'){
       timepoints <- timepoints[1:(heading_i -1)]
     }
 
-    # structure secondary factor and focal trait df
+    # Format factor scores and join with design metadata/yield targets
     fac_df <- factor_scores_df %>%
       filter(timepoint %in% timepoints) %>%
       pivot_wider(names_from = timepoint, values_from = F1:F2)
@@ -146,26 +165,24 @@ for(settings_i in 1:nrow(settings_df)){
       select(G, contains('F'), yield_adjusted_BLUES.x) %>%
       mutate(Y = yield_adjusted_BLUES.x, .keep = 'unused')
 
-    ### wrangle yield and secondary trait data together ----
-    # scale predictor variables ----
-    # create means df for subset selection
+    # --- Feature Selection via Best Subset Regression ---
     mean_df <- full_df %>%
       group_by(G) %>%
       summarise(across(everything(), mean)) %>%
       column_to_rownames('G')
 
-    # subset selection ----
     best.fit <- regsubsets(Y~ ., data = na.omit(mean_df), nvmax = ncol(mean_df) - 1)
     sum.fit <- summary(best.fit)
     best.coefs <- coef(best.fit, which.min(sum.fit$bic))
 
-    # gfBLUP ----
+    # --- Fit gfBLUP Model ---
     k_included <- kinship[unique(full_df$G), unique(full_df$G)]
     tryCatch({
       gfBLUP_result <- custom_gfBLUP(data = as.data.frame(full_df), selection = names(best.coefs)[-1], K = k_included)
       gfBLUP_result$rho = cor(gfBLUP_result$preds[match(x$pred.target$G, names(gfBLUP_result$preds))],
                               x$pred.target$pred.target)
-      # store results ----
+
+      # Save Procrustes gfBLUP predictions
       list.save(gfBLUP_result,
                 file = paste0('./data/processed/gfBLUP_timepoints/procrustes/',env, '/', CV,
                               '/', stage, '/gfBLUP_', i, '.RData'))
@@ -175,7 +192,9 @@ for(settings_i in 1:nrow(settings_df)){
   toc()
 }
 
-# splines characteristics ----
+# ====================================================
+# PART C: SPLINE CHARACTERISTIC PREDICTION
+# ====================================================
 for(settings_i in 1:nrow(settings_df)){
   (env = settings_df[settings_i,]$selected_env)
   (CV = settings_df[settings_i,]$CV)
@@ -184,105 +203,56 @@ for(settings_i in 1:nrow(settings_df)){
   n_datasets <- length(list.files(
     paste0('./data/processed/spline_characteristics/', env, '/', CV,'/', stage, '/')))
 
-tic()
-for(i in 1:n_datasets){
-  cat('start run', i, env, CV, stage, '\n')
-  predictor_df <- read_csv(sprintf('./data/processed/spline_characteristics/%s/%s/%s/characteristic_%i.csv',
-            env, CV, stage, i), show_col_types = FALSE)
+  tic()
+  for(i in 1:n_datasets){
+    cat('start run', i, env, CV, stage, '\n')
 
-  load(sprintf('./data/processed/hyper_folds/%s/hyper_dataset_%i.RData', env, i))
+    # Read pre-calculated spline characteristics (min, max, AUC for spline and derivatives)
+    predictor_df <- read_csv(sprintf('./data/processed/spline_characteristics/%s/%s/%s/characteristic_%i.csv',
+                                     env, CV, stage, i), show_col_types = FALSE)
 
-  # wrangle yield and secondary trait data together ----
-  yield_df <- x$data[,c('G', 'plot', 'yield_adjusted_BLUES')] %>%
-    mutate(plot = as.character(plot),
-           Y = yield_adjusted_BLUES,
-           .keep = 'unused')
+    load(sprintf('./data/processed/hyper_folds/%s/hyper_dataset_%i.RData', env, i))
 
-  full_df <- predictor_df %>%
-    mutate(G = as.character(genotype),
-           plot = as.character(plotId),
-           .keep = 'unused') %>%
-    select(-pop, -contains('time')) %>%
-    right_join(yield_df, by = c('G', 'plot')) %>%
-    select(G, any_of(colnames(predictor_df[, -c(1:3)])), Y)
+    # --- Wrangle Spline Predictors with Yield Targets ---
+    yield_df <- x$data[,c('G', 'plot', 'yield_adjusted_BLUES')] %>%
+      mutate(plot = as.character(plot),
+             Y = yield_adjusted_BLUES,
+             .keep = 'unused')
 
-  # scale predictor variables ----
-  full_df[, -c(1, 20)] <- scale(full_df[, -c(1, 20)])
+    full_df <- predictor_df %>%
+      mutate(G = as.character(genotype),
+             plot = as.character(plotId),
+             .keep = 'unused') %>%
+      select(-pop, -contains('time')) %>%
+      right_join(yield_df, by = c('G', 'plot')) %>%
+      select(G, any_of(colnames(predictor_df[, -c(1:3)])), Y)
 
-  # create means df for subset selection
-  mean_df <- full_df %>%
-    group_by(G) %>%
-    summarise(across(everything(), mean)) %>%
-    column_to_rownames('G')
+    # Scale numeric predictors (standardize mean=0, SD=1 across spline features)
+    full_df[, -c(1, 20)] <- scale(full_df[, -c(1, 20)])
 
-  # subset selection ----
-  best.fit <- regsubsets(Y~ ., data = na.omit(mean_df), nvmax = ncol(mean_df) - 1)
-  sum.fit <- summary(best.fit)
-  best.coefs <- coef(best.fit, which.min(sum.fit$bic))
+    # --- Feature Selection via Best Subset Regression ---
+    mean_df <- full_df %>%
+      group_by(G) %>%
+      summarise(across(everything(), mean)) %>%
+      column_to_rownames('G')
 
-  k_included <- kinship[unique(full_df$G), unique(full_df$G)]
+    best.fit <- regsubsets(Y~ ., data = na.omit(mean_df), nvmax = ncol(mean_df) - 1)
+    sum.fit <- summary(best.fit)
+    best.coefs <- coef(best.fit, which.min(sum.fit$bic))
 
-  # gfBLUP ----
-  tryCatch({
-    gfBLUP_result <- custom_gfBLUP(data = as.data.frame(full_df), selection = names(best.coefs)[-1], K = kinship)
-    gfBLUP_result$rho = cor(gfBLUP_result$preds[match(x$pred.target$G, names(gfBLUP_result$preds))],
-                            x$pred.target$pred.target)
-    # store results ----
-    list.save(gfBLUP_result,
-              file = paste0('./data/processed/gfBLUP_spline/',env, '/', CV, '/', stage, '/gfBLUP_', i, '.RData'))
-    rm(gfBLUP_result)
-  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+    k_included <- kinship[unique(full_df$G), unique(full_df$G)]
+
+    # --- Fit gfBLUP Model ---
+    tryCatch({
+      gfBLUP_result <- custom_gfBLUP(data = as.data.frame(full_df), selection = names(best.coefs)[-1], K = kinship)
+      gfBLUP_result$rho = cor(gfBLUP_result$preds[match(x$pred.target$G, names(gfBLUP_result$preds))],
+                              x$pred.target$pred.target)
+
+      # Save spline-based gfBLUP predictions
+      list.save(gfBLUP_result,
+                file = paste0('./data/processed/gfBLUP_spline/',env, '/', CV, '/', stage, '/gfBLUP_', i, '.RData'))
+      rm(gfBLUP_result)
+    }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+  }
+  toc()
 }
-toc()
-}
-
-
-# single example ----
-# i = 1
-# env = 'B5IR'
-# CV = 'CV1'
-# stage = 'full'
-# predictor_df <- read_csv(paste0('./data/processed/spline_characteristics/',env, '/',CV,'/',stage, '/characteristic_', i, '.csv'))
-# load(paste0('./data/processed/hyper_folds/B5IR/hyper_dataset_', i, '.RData'))
-#
-# # wrangle yield and secondary trait data together ----
-# yield_df <- x$data[,c(1, 4, 625)] %>%
-#   mutate(plot = as.character(plot),
-#          Y = yield_adjusted_BLUES,
-#          .keep = 'unused')
-#
-# full_df <- predictor_df %>%
-#   mutate(G = as.character(genotype),
-#          plot = as.character(plotId),
-#          .keep = 'unused') %>%
-#   select(-pop, -contains('time')) %>%
-#   right_join(yield_df, by = c('G', 'plot')) %>%
-#   select(G, any_of(colnames(predictor_df[, -c(1:3)])), Y)
-#
-# # scale predictor variables ----
-# full_df[, -c(1, 20)] <- scale(full_df[, -c(1, 20)])
-#
-# # create means df for subset selection
-# mean_df <- full_df %>%
-#   group_by(G) %>%
-#   summarise(across(everything(), mean)) %>%
-#   column_to_rownames('G')
-#
-# # subset selection ----
-# best.fit <- regsubsets(Y~ ., data = na.omit(mean_df), nvmax = ncol(mean_df) - 1)
-# sum.fit <- summary(best.fit)
-# best.coefs <- coef(best.fit, which.min(sum.fit$bic))
-#
-# k_included <- kinship[unique(full_df$G), unique(full_df$G)]
-#
-# # gfBLUP ----
-# gfBLUP_result <- gfBLUP(as.data.frame(full_df), selection = names(best.coefs)[-1], K = kinship)
-# gfBLUP_result$rho = cor(gfBLUP_result$preds[match(x$pred.target$G, names(gfBLUP_result$preds))],
-#                                      x$pred.target$pred.target)
-#
-#
-# # store results ----
-# list.save(gfBLUP_result,
-#           file = paste0('./data/processed/gfBLUP_spline/',env, '/', CV, '/', stage, '/gfBLUP_', i, '.RData'))
-
-
