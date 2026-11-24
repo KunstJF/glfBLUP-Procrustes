@@ -7,6 +7,10 @@ library(tidyverse)
 library(lme4)
 library(corrplot)
 library(GGally)
+library(patchwork)
+library(ggpubr)
+library(GGally)
+library(tidyverse)
 
 # data ----
 yield_1415 <- readxl::read_xlsx("./data/raw/EYT_all_data_Y13_14_to_Y15_16.xlsx", sheet = 2)
@@ -50,6 +54,7 @@ BLUE_df <- BLUE_df[, c(2, 1, 3)]
 # store so we don't have to run again
 write_csv(BLUE_df, './data/processed/yield_BLUE_df.csv')
 
+BLUE_df <- read_csv('./data/processed/yield_BLUE_df.csv')
 BLUE_long_df <- BLUE_df |>
   pivot_longer(cols = everything(),
                names_to = 'treatment',
@@ -57,10 +62,6 @@ BLUE_long_df <- BLUE_df |>
   mutate(treatment = factor(treatment, levels = c('Optimal Flat', 'Moderate Drought', 'Severe Drought')))
 
 # plot ----
-# round(yield_and_h2s$B5IR$yield_h2, 2)
-# round(yield_and_h2s$B2IR$yield_h2, 2)
-# round(yield_and_h2s$DRIP$yield_h2, 2)
-
 boxplot_gy <- BLUE_long_df |>
 ggplot(aes(x = treatment, y = BLUE_gy)) +
   geom_boxplot() +
@@ -76,23 +77,11 @@ ggplot(aes(x = treatment, y = BLUE_gy)) +
 boxplot_gy
 
 ggsave('./figures/yield_blues_boxplot.pdf', plot = boxplot_gy, device = 'pdf')
-# order correlation matrix for corrplot
-corrMatOrder(cor(BLUE_df), order = )
-corplot_gy <- corrplot(cor(BLUE_df),
-         method = 'ellipse',
-         type = 'lower',
-         diag = FALSE,
-         order= 'original',
-         addCoef.col = 'black')
 
 # alternatively: ggpairs and patchwork to combine both ----
 # okay ggpairs has limits, let's try patchwork together with ggpairs
 # lower triangle plot with diag correlation texts
 # boxplot with treatments
-library(patchwork)
-library(ggpubr)
-library(GGally)
-library(tidyverse)
 BLUE_df <- read_csv('./data/processed/yield_BLUE_df.csv')
 BLUE_df <- BLUE_df[, c(1, 3, 2)]
 
@@ -110,7 +99,7 @@ lowerFn <- function(data, mapping, ...) {
                  conf.int = FALSE)
 
   p + stat_cor(aes(label = after_stat(r.label)),
-               cor.coef.name = 'rho')
+               cor.coef.name = expression(hat('\u03C1')))
 }
 
 
@@ -118,9 +107,9 @@ scatter_tri <- ggtest <- ggpairs(BLUE_df,
                                  upper = 'blank',
                                  diag = 'blank',
                                  lower = list(continuous = lowerFn),
-                                 switch = 'both') +
+                                 switch = 'both',
+                                 xlab = 'Genotypic means of grain yield (t/ha)') +
   theme_bw() +
-  labs(x = 'Genotypic means of grain yield (t/ha)') +
   theme(
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank()
@@ -149,7 +138,8 @@ gy_boxplot <- BLUE_df |>
 
 gy_boxplot
 
+cairo_pdf('./figures/yield_blue_pairsplot.pdf', width = 15, height = 10)
 gy_boxplot + wrap_elements(ggmatrix_gtable(scatter_tri)) + plot_annotation(tag_levels = c('a', 'b'))
-
+dev.off()
 
 

@@ -46,53 +46,6 @@ mean_df <- HS_df %>%
   unite('fac_env', environment, factor, sep = ' ') %>%
   pivot_wider(id_cols = G, names_from = fac_env, values_from = mean_factor_score)
 
-# correlation plot ----
-corrplot(cor(na.omit(mean_df[, -1])),
-         method = 'ellipse',
-         type = 'lower',
-         diag = FALSE,
-         order= 'AOE',
-         addCoef.col = 'black')
-
-# alternatively, we can make a pairsplot ----
-ggpairs(mean_df[, -1],
-        upper = "blank") +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank()
-  )
-
-# even with different configurations
-mean_df_envs <- HS_df %>%
-  select(G, environment, factor, mean_factor_score) %>%
-  distinct() |>
-  pivot_wider(names_from = environment, values_from = mean_factor_score)
-
-ggpairs(mean_df_envs[, -1],
-        mapping = aes(color = factor),
-        columns = c('Optimal Flat', 'Moderate Drought', 'Severe Drought'),
-        ) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank()
-  )
-
-mean_df_facs <- HS_df %>%
-  select(G, environment, factor, mean_factor_score) %>%
-  distinct() |>
-  pivot_wider(names_from = factor, values_from = mean_factor_score)
-
-ggpairs(mean_df_facs[, -1],
-        mapping = aes(color = environment),
-        columns = c('Factor 1', 'Factor 2')) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank()
-  )
-
 # make similar yield plot ----
 ## adjust df so more readable ----
 # remove genotype column and reorder for better clusters in plot
@@ -117,24 +70,22 @@ lowerFn <- function(data, mapping, ...) {
                  conf.int = FALSE)
 
   p + stat_cor(aes(label = after_stat(r.label)),
-               cor.coef.name = 'rho')
+               cor.coef.name = expression(hat('\u03C1')))
 }
 
-
 scatter_tri <- ggpairs(plot_df,
-                                 upper = 'blank',
-                                 diag = 'blank',
-                                 lower = list(continuous = lowerFn),
-                                 switch = 'both') +
+                       upper = 'blank',
+                       diag = 'blank',
+                       lower = list(continuous = lowerFn),
+                       switch = 'both',
+                       xlab ='Genotypic mean of factor scores across timepoints in treatment' ) +
   theme_bw() +
-  labs(x = 'Genotypic mean of factor scores across timepoints in treatment') +
   theme(
     panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank()
+    panel.grid.minor = element_blank(),
   )
+
 scatter_tri
-
-
 
 scatter_tri$yAxisLabels = scatter_tri$yAxisLabels[2:6]
 scatter_tri$xAxisLabels = scatter_tri$xAxisLabels[1:5]
@@ -142,3 +93,7 @@ scatter_tri$plots = scatter_tri$plots[c(7:11, 13:17, 19:23, 25:29, 31:35)]
 scatter_tri$nrow = 5
 scatter_tri$ncol = 5
 scatter_tri
+
+cairo_pdf('./figures/factors_pairs_plot.pdf', width = 15, height = 10)
+scatter_tri
+dev.off()

@@ -20,7 +20,7 @@ for(row_i in 1:nrow(settings_df)){
   cv <- settings_df[row_i,]$CV
   plant_stage <- settings_df[row_i,]$plant_stage
 
-  files <- list.files(sprintf('./data/processed/gfBLUP_timepoints/procrustes/%s/%s/%s/', env, cv, plant_stage), full.names = TRUE)
+  files <- list.files(sprintf('./data/processed/glfBLUP_timepoints/procrustes/%s/%s/%s/', env, cv, plant_stage), full.names = TRUE)
 
   selected_facs <- lapply(files, function(f){
     load(f)
