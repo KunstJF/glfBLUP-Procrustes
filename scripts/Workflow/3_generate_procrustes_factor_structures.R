@@ -7,7 +7,7 @@
 # ------------------------------------------------------------------------------
 library(stringr)
 library(tictoc)
-library(gfBLUP)
+library(glfBLUP)
 library(doParallel)
 
 # Source custom user functions (e.g., `procustes`, `procustes_smoother`)
@@ -91,14 +91,14 @@ foreach::foreach(i = 1:n_datasets, .packages = c("stringr", 'magrittr', 'dplyr')
   smoothed_factors <- append(smoothed_factors, list(original_loadings), after = focal_time-1)
   names(smoothed_factors) <- timepoints
 
-  # Compute factor scores using gfBLUP
+  # Compute factor scores using glfBLUP
   proc_factor_scores_cv2 <- vector(mode = 'list', length = length(smoothed_factors))
   for(timepoint_i in 1:length(smoothed_factors)){
     # Select hyperspectral features corresponding to current timepoint
     temp_df <- dplyr::select(x$data, G, contains(timepoints[timepoint_i]))
 
     # Calculate factor scores using updated loadings and uniquenesses
-    proc_factor_scores_cv2[[timepoint_i]] <- gfBLUP::factorScores(as.data.frame(temp_df),
+    proc_factor_scores_cv2[[timepoint_i]] <- glfBLUP::factorScores(as.data.frame(temp_df),
                                                                   loadings = smoothed_factors[[timepoint_i]],
                                                                   uniquenesses = factor_result$cv2_factor_structure[[timepoint_i]]$factor_structure$uniquenesses,
                                                                   m = target_structure$factor_structure$m)
@@ -160,7 +160,7 @@ foreach::foreach(i = 1:n_datasets, .packages = c("stringr", 'magrittr', 'dplyr')
   for(timepoint_i in 1:length(smoothed_factors)){
     temp_df <- dplyr::select(cv1_df, G, contains(timepoints[timepoint_i]))
 
-    proc_factor_scores_cv1[[timepoint_i]] <- gfBLUP::factorScores(as.data.frame(temp_df),
+    proc_factor_scores_cv1[[timepoint_i]] <- glfBLUP::factorScores(as.data.frame(temp_df),
                                                                   loadings = smoothed_factors[[timepoint_i]],
                                                                   uniquenesses = factor_result$cv1_factor_sctructure[[timepoint_i]]$factor_structure$uniquenesses,
                                                                   m = target_structure$factor_structure$m)

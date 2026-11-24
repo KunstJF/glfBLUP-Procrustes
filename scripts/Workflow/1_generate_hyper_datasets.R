@@ -160,11 +160,6 @@ foreach::foreach(i = 1:length(work), .packages = c("magrittr", 'dplyr')) %dopar%
       dplyr::distinct()
 
     # Finally bind the test dataframes containing (adjusted) BLUEs and secondary traits:
-    #####
-    # NOTE: Does bind_cols match dataframes based on order. As in, the rows (plants) need to
-    # be in the same order in both dataframes? Otherwise secondary phenotypes and yields don't match.
-    # That may not be an issue in CV1, but in CV2 it would be.
-    #####
     # ANOTHER NOTE: length(unique(gp_ready_sec_test$gid)) = 366. Why not 27 genotypes * 13 trials + 2 checks
     # = 27*13+2 = 353?
     # View(table(gp_ready_sec_test$gid)$Freq) shows 366 genotypes with two having a freq. of 39 (checks),

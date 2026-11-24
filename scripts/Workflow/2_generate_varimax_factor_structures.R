@@ -7,7 +7,7 @@
 # ------------------------------------------------------------------------------
 library(stringr)
 library(tictoc)
-library(gfBLUP)
+library(glfBLUP)
 library(doParallel)
 
 # Load user-defined custom utility functions from local directory
